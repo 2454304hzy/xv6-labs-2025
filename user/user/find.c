@@ -3,8 +3,9 @@
 #include "user/user.h"
 #include "kernel/fs.h"
 #include "kernel/fcntl.h"
+#include "kernel/param.h"
 
-void find(char *path, char *target) {
+void find(char *path, char *target, char *exec_cmd) {
     char buf[512], *p;
     int fd;
     struct dirent de;
@@ -27,7 +28,19 @@ void find(char *path, char *target) {
             if (p == 0) p = path;
             else p++;
             if (strcmp(p, target) == 0) {
-                printf("%s\n", path);
+                if (exec_cmd != 0) {
+                    int pid = fork();
+                    if (pid == 0) {
+                        char *argv[] = {exec_cmd, path, 0};
+                        exec(exec_cmd, argv);
+                        fprintf(2, "find: exec failed\n");
+                        exit(1);
+                    } else {
+                        wait(0);
+                    }
+                } else {
+                    printf("%s\n", path);
+                }
             }
             break;
         }
@@ -47,7 +60,7 @@ void find(char *path, char *target) {
                 }
                 memmove(p, de.name, DIRSIZ);
                 p[DIRSIZ] = 0;
-                find(buf, target);
+                find(buf, target, exec_cmd);
             }
             break;
         }
@@ -57,10 +70,16 @@ void find(char *path, char *target) {
 
 int main(int argc, char *argv[])
 {
-    if (argc != 3) {
-        fprintf(2, "Usage: find <path> <filename>\n");
+    if (argc < 3) {
+        fprintf(2, "Usage: find <path> <filename> [-exec cmd]\n");
         exit(1);
     }
-    find(argv[1], argv[2]);
+    
+    char *exec_cmd = 0;
+    if (argc >= 4 && strcmp(argv[3], "-exec") == 0) {
+        exec_cmd = argv[4];
+    }
+    
+    find(argv[1], argv[2], exec_cmd);
     exit(0);
 }
