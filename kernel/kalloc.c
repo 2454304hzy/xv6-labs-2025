@@ -14,23 +14,23 @@ struct run {
   struct run *next;
 };
 
-struct {
+struct kmem {
   struct spinlock lock;
   struct run *freelist;
-} kmem;
+};
 
-// Reference counts for physical pages
-int refcount[PHYSTOP / PGSIZE];
+static struct kmem kmems[NCPU];
 
 void
 kinit()
 {
-  initlock(&kmem.lock, "kmem");
-  freerange(end, (void*)PHYSTOP);
-  // Initialize reference counts to 0
-  for(int i = 0; i < PHYSTOP / PGSIZE; i++) {
-    refcount[i] = 0;
+  for (int i = 0; i < NCPU; i++) {
+    char name[8];
+    snprintf(name, sizeof(name), "kmem_%d", i);
+    initlock(&kmems[i].lock, name);
+    kmems[i].freelist = 0;
   }
+  freerange(end, (void*)PHYSTOP);
 }
 
 void
@@ -39,7 +39,7 @@ freerange(void *pa_start, void *pa_end)
   char *p;
   p = (char*)PGROUNDUP((uint64)pa_start);
   for(; p + PGSIZE <= (char*)pa_end; p += PGSIZE) {
-    refcount[(uint64)p / PGSIZE] = 1;
+    int cpu = cpuid();
     kfree(p);
   }
 }
@@ -56,24 +56,19 @@ kfree(void *pa)
   if(((uint64)pa % PGSIZE) != 0 || (char*)pa < end || (uint64)pa >= PHYSTOP)
     panic("kfree");
 
-  // Decrement reference count
-  int idx = (uint64)pa / PGSIZE;
-  acquire(&kmem.lock);
-  refcount[idx]--;
-  if(refcount[idx] > 0) {
-    release(&kmem.lock);
-    return;
-  }
-
   // Fill with junk to catch dangling refs.
   memset(pa, 1, PGSIZE);
 
   r = (struct run*)pa;
 
-  acquire(&kmem.lock);
-  r->next = kmem.freelist;
-  kmem.freelist = r;
-  release(&kmem.lock);
+  push_off();
+  int cpu = cpuid();
+  struct kmem *kmem = &kmems[cpu];
+  acquire(&kmem->lock);
+  r->next = kmem->freelist;
+  kmem->freelist = r;
+  release(&kmem->lock);
+  pop_off();
 }
 
 // Allocate one 4096-byte page of physical memory.
@@ -82,40 +77,58 @@ kfree(void *pa)
 void *
 kalloc(void)
 {
-  struct run *r;
-
-  acquire(&kmem.lock);
-  r = kmem.freelist;
-  if(r) {
-    kmem.freelist = r->next;
-    int idx = (uint64)r / PGSIZE;
-    refcount[idx] = 1;
+  struct run *r = 0;
+  
+  push_off();
+  int cpu = cpuid();
+  struct kmem *kmem = &kmems[cpu];
+  
+  acquire(&kmem->lock);
+  r = kmem->freelist;
+  if (r) {
+    kmem->freelist = r->next;
   }
-  release(&kmem.lock);
-
-  if(r)
+  release(&kmem->lock);
+  
+  if (r == 0) {
+    // steal from another CPU
+    for (int i = 0; i < NCPU; i++) {
+      if (i == cpu) continue;
+      struct kmem *other = &kmems[i];
+      acquire(&other->lock);
+      if (other->freelist) {
+        // steal 16 pages at a time
+        int steal_count = 16;
+        struct run *steal_head = other->freelist;
+        struct run *steal_tail = steal_head;
+        while (steal_tail->next && steal_count > 1) {
+          steal_tail = steal_tail->next;
+          steal_count--;
+        }
+        other->freelist = steal_tail->next;
+        steal_tail->next = 0;
+        release(&other->lock);
+        
+        acquire(&kmem->lock);
+        kmem->freelist = steal_head;
+        release(&kmem->lock);
+        
+        // now allocate from our new list
+        acquire(&kmem->lock);
+        r = kmem->freelist;
+        if (r) {
+          kmem->freelist = r->next;
+        }
+        release(&kmem->lock);
+        break;
+      }
+      release(&other->lock);
+    }
+  }
+  
+  pop_off();
+  
+  if (r)
     memset((char*)r, 5, PGSIZE); // fill with junk
   return (void*)r;
-}
-
-// Increment reference count for a physical page
-void
-krefinc(void *pa)
-{
-  int idx = (uint64)pa / PGSIZE;
-  acquire(&kmem.lock);
-  refcount[idx]++;
-  release(&kmem.lock);
-}
-
-// Get reference count for a physical page
-int
-krefget(void *pa)
-{
-  int idx = (uint64)pa / PGSIZE;
-  int count;
-  acquire(&kmem.lock);
-  count = refcount[idx];
-  release(&kmem.lock);
-  return count;
 }
