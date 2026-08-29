@@ -17,16 +17,28 @@ struct proc {
   uint64 sz;                   // Size of process memory (bytes)
   pagetable_t pagetable;       // User page table
   struct trapframe *trapframe; // data page for trampoline.S
-  struct usyscall *usyscall;   // USYSCALL page for fast system calls
   struct context context;      // swtch() here to run process
   struct file *ofile[NOFILE];  // Open files
   struct inode *cwd;           // Current directory
   char name[16];               // Process name (debugging)
 
-  // Alarm fields
-  int alarm_interval;          // ticks between alarms
-  void (*alarm_handler)();     // handler function
-  int alarm_ticks;             // ticks until next alarm
-  int alarm_handling;          // currently handling alarm
-  struct trapframe alarm_trapframe; // saved trapframe for alarm
+  // alarm fields
+  int alarm_interval;
+  void (*alarm_handler)();
+  int alarm_ticks;
+  int alarm_handling;
+  struct trapframe alarm_trapframe;
+
+  // mmap fields
+  struct vma *vmas[16];
+};
+
+struct vma {
+  int valid;
+  uint64 addr;
+  uint64 len;
+  int prot;
+  int flags;
+  struct file *f;
+  int offset;
 };
