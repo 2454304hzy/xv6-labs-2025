@@ -196,8 +196,8 @@ UPROGS=\
 	$U/_dorphan\
     $U/_sleep\
     $U/_sixfive\
-    $U/_find
-
+    $U/_find\
+    $U/_sandbox
 ifeq ($(LAB),syscall)
 UPROGS += \
 	$U/_attack\
