@@ -5,6 +5,7 @@ struct inode;
 struct pipe;
 struct proc;
 struct spinlock;
+struct rwspinlock;
 struct sleeplock;
 struct stat;
 struct superblock;
@@ -58,9 +59,7 @@ void            itrunc(struct inode*);
 void*           kalloc(void);
 void            kfree(void*);
 void            kinit(void);
-// kalloc.c
-void            krefinc(void*);
-int             krefget(void*);
+
 // log.c
 void            initlog(int, struct superblock*);
 void            log_write(struct buf*);
@@ -112,6 +111,11 @@ void            initlock(struct spinlock*, char*);
 void            release(struct spinlock*);
 void            push_off(void);
 void            pop_off(void);
+void            initrwlock(struct rwspinlock*);
+void            read_acquire(struct rwspinlock*);
+void            read_release(struct rwspinlock*);
+void            write_acquire(struct rwspinlock*);
+void            write_release(struct rwspinlock*);
 
 // sleeplock.c
 void            acquiresleep(struct sleeplock*);
@@ -127,6 +131,7 @@ char*           safestrcpy(char*, const char*, int);
 int             strlen(const char*);
 int             strncmp(const char*, const char*, uint);
 char*           strncpy(char*, const char*, int);
+int             snprintf(char*, int, const char*, ...);
 
 // syscall.c
 void            syscall(void);
