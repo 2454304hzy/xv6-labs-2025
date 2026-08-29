@@ -22,4 +22,11 @@ struct proc {
   struct file *ofile[NOFILE];  // Open files
   struct inode *cwd;           // Current directory
   char name[16];               // Process name (debugging)
+
+  // Alarm fields
+  int alarm_interval;          // ticks between alarms
+  void (*alarm_handler)();     // handler function
+  int alarm_ticks;             // ticks until next alarm
+  int alarm_handling;          // currently handling alarm
+  struct trapframe alarm_trapframe; // saved trapframe for alarm
 };
