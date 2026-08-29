@@ -419,4 +419,83 @@ sys_mmap(void)
     return -1;
   
   if((f = myproc()->ofile[fd]) == 0)
-    return -
+    return -1;
+  
+  if(f->ip->type != T_FILE)
+    return -1;
+  
+  struct proc *p = myproc();
+  uint64 va = p->sz;
+  
+  va = PGROUNDUP(va);
+  
+  int slot = -1;
+  for(int i = 0; i < 16; i++) {
+    if(p->vmas[i] == 0) {
+      p->vmas[i] = kalloc();
+      if(p->vmas[i] == 0)
+        return -1;
+      slot = i;
+      break;
+    }
+  }
+  if(slot == -1)
+    return -1;
+  
+  struct vma *vma = p->vmas[slot];
+  vma->valid = 1;
+  vma->addr = va;
+  vma->len = len;
+  vma->prot = prot;
+  vma->flags = flags;
+  vma->f = filedup(f);
+  vma->offset = 0;
+  
+  p->sz = va + len;
+  
+  return va;
+}
+
+uint64
+sys_munmap(void)
+{
+  uint64 addr, len;
+  if(argaddr(0, &addr) < 0 || argaddr(1, &len) < 0)
+    return -1;
+  
+  struct proc *p = myproc();
+  
+  for(int i = 0; i < 16; i++) {
+    struct vma *vma = p->vmas[i];
+    if(vma == 0 || !vma->valid) continue;
+    
+    if(addr >= vma->addr && addr < vma->addr + vma->len) {
+      uint64 start = addr;
+      uint64 end = addr + len;
+      if(end > vma->addr + vma->len)
+        end = vma->addr + vma->len;
+      
+      for(uint64 va = start; va < end; va += PGSIZE) {
+        pte_t *pte = walk(p->pagetable, va, 0);
+        if(pte && (*pte & PTE_V)) {
+          if((vma->flags & MAP_SHARED) && (vma->prot & PROT_WRITE)) {
+            uint64 pa = PTE2PA(*pte);
+            struct inode *ip = vma->f->ip;
+            uint64 off = va - vma->addr;
+            begin_op();
+            ilock(ip);
+            writei(ip, 1, pa, off, PGSIZE);
+            iunlock(ip);
+            end_op();
+          }
+          uvmunmap(p->pagetable, va, 1, 1);
+        }
+      }
+      
+      vma->valid = 0;
+      fileclose(vma->f);
+      return 0;
+    }
+  }
+  return -1;
+}
