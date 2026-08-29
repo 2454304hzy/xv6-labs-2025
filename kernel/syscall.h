@@ -23,3 +23,6 @@
 #define SYS_interpose 22
 #define SYS_sigalarm 23
 #define SYS_sigreturn 24
+#define SYS_symlink 25
+#define SYS_mmap   26
+#define SYS_munmap 27
