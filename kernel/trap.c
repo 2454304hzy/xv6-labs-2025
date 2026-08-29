@@ -65,6 +65,27 @@ usertrap(void)
     intr_on();
 
     syscall();
+  } else if(r_scause() == 15 || r_scause() == 13) {
+    // Page fault - handle COW
+    uint64 va = r_stval();
+    if(va >= p->sz || va < PGROUNDUP(p->trapframe->sp)) {
+      p->killed = 1;
+    } else {
+      pte_t *pte = walk(p->pagetable, va, 0);
+      if(pte == 0 || (*pte & PTE_V) == 0 || (*pte & PTE_COW) == 0) {
+        p->killed = 1;
+      } else {
+        uint64 pa = PTE2PA(*pte);
+        char *mem = kalloc();
+        if(mem == 0) {
+          p->killed = 1;
+        } else {
+          memmove(mem, (char*)pa, PGSIZE);
+          kfree((void*)pa);
+          *pte = PA2PTE((uint64)mem) | PTE_R | PTE_W | PTE_U | PTE_V;
+        }
+      }
+    }
   } else if((which_dev = devintr()) != 0){
     // ok
     // Timer interrupt for alarm
